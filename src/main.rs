@@ -10,23 +10,23 @@ fn main() {
     let artifact_dir = "/tmp/guide";
     #[cfg(feature = "wgpu")]
     {
-        type MyBackend = burn::backend::Wgpu<f32, i32>; // 67.77
+        type MyBackend = burn::backend::Wgpu<f32, i32>;
         let device = burn::backend::wgpu::WgpuDevice::default();
         type MyAutodiffBackend = Autodiff<MyBackend>;
         crate::model::train::<MyAutodiffBackend>(
             artifact_dir,
-            TrainingConfig::new(ModelConfig::new(10, 512), AdamConfig::new()).with_num_epochs(3),
+            TrainingConfig::new(ModelConfig::new(10, 512), AdamConfig::new()).with_num_epochs(1),
             device,
         );
     }
     #[cfg(not(feature = "wgpu"))]
     {
-        type MyBackend = burn::backend::NdArray<f32, i32>; // 330.22 (non-native) 309.96 (native)
+        type MyBackend = burn::backend::NdArray<f32, i32>;
         let device = burn::backend::ndarray::NdArrayDevice::default();
         type MyAutodiffBackend = Autodiff<MyBackend>;
         crate::model::train::<MyAutodiffBackend>(
             artifact_dir,
-            TrainingConfig::new(ModelConfig::new(10, 512), AdamConfig::new()).with_num_epochs(3),
+            TrainingConfig::new(ModelConfig::new(10, 512), AdamConfig::new()).with_num_epochs(1),
             device,
         );
     }
