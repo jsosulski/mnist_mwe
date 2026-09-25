@@ -4,9 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-burn = { version = "0.18.0", features = ["std", "tui", "train", "vision", "wgpu", "fusion", "ndarray"], default-features = false }
-# burn = { git = "https://github.com/tracel-ai/burn", features = ["std", "tui", "train", "vision", "wgpu", "fusion", "ndarray"], default-features = false }
+#burn = { version = "0.18.0", features = ["std", "tui", "train", "vision", "wgpu", "fusion", "ndarray"], default-features = false }
+# burn = { git = "https://github.com/tracel-ai/burn", features = ["std", "tui", "train", "vision", "fusion"], default-features = false }
+burn = { version = "0.22.0-pre.4", features = ["std", "tui", "train", "vision", "fusion"], default-features = false }
 
 
 [features]
-wgpu = []
+default = ["ndarray"]
+ndarray = ["burn/ndarray"]
+wgpu = ["burn/wgpu"]
+flex = ["burn/flex"]
+cubecl = ["burn/cpu"]

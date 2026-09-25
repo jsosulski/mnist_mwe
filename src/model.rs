@@ -8,10 +8,8 @@ use burn::{
     },
     optim::AdamConfig,
     prelude::*,
-    record::CompactRecorder,
-    tensor::backend::AutodiffBackend,
     train::{
-        ClassificationOutput, LearnerBuilder, TrainOutput, TrainStep, ValidStep,
+        ClassificationOutput, InferenceStep, Learner, SupervisedTraining, TrainOutput, TrainStep,
         metric::{AccuracyMetric, LossMetric},
     },
 };
@@ -19,13 +17,13 @@ use burn::{
 use crate::data::{MnistBatch, MnistBatcher};
 
 #[derive(Module, Debug)]
-pub struct Model<B: Backend> {
-    conv1: Conv2d<B>,
-    conv2: Conv2d<B>,
+pub struct Model {
+    conv1: Conv2d,
+    conv2: Conv2d,
     pool: AdaptiveAvgPool2d,
     dropout: Dropout,
-    linear1: Linear<B>,
-    linear2: Linear<B>,
+    linear1: Linear,
+    linear2: Linear,
     activation: Relu,
 }
 
@@ -39,7 +37,7 @@ pub struct ModelConfig {
 
 impl ModelConfig {
     /// Returns the initialized model.
-    pub fn init<B: Backend>(&self, device: &B::Device) -> Model<B> {
+    pub fn init(&self, device: &Device) -> Model {
         Model {
             conv1: Conv2dConfig::new([1, 8], [3, 3]).init(device),
             conv2: Conv2dConfig::new([8, 16], [3, 3]).init(device),
@@ -52,11 +50,11 @@ impl ModelConfig {
     }
 }
 
-impl<B: Backend> Model<B> {
+impl Model {
     /// # Shapes
     ///   - Images [batch_size, height, width]
     ///   - Output [batch_size, num_classes]
-    pub fn forward(&self, images: Tensor<B, 3>) -> Tensor<B, 2> {
+    pub fn forward(&self, images: Tensor<3>) -> Tensor<2> {
         let [batch_size, height, width] = images.dims();
 
         // Create a channel at the second dimension.
@@ -78,12 +76,12 @@ impl<B: Backend> Model<B> {
     }
 }
 
-impl<B: Backend> Model<B> {
+impl Model {
     pub fn forward_classification(
         &self,
-        images: Tensor<B, 3>,
-        targets: Tensor<B, 1, Int>,
-    ) -> ClassificationOutput<B> {
+        images: Tensor<3>,
+        targets: Tensor<1, Int>,
+    ) -> ClassificationOutput {
         let output = self.forward(images);
         let loss = CrossEntropyLossConfig::new()
             .init(&output.device())
@@ -93,21 +91,27 @@ impl<B: Backend> Model<B> {
     }
 }
 
-impl<B: AutodiffBackend> TrainStep<MnistBatch<B>, ClassificationOutput<B>> for Model<B> {
-    fn step(&self, batch: MnistBatch<B>) -> TrainOutput<ClassificationOutput<B>> {
+impl TrainStep for Model {
+    type Input = MnistBatch;
+    type Output = ClassificationOutput;
+
+    fn step(&self, batch: MnistBatch) -> TrainOutput<Self::Output> {
         let item = self.forward_classification(batch.images, batch.targets);
 
         TrainOutput::new(self, item.loss.backward(), item)
     }
 }
 
-impl<B: Backend> ValidStep<MnistBatch<B>, ClassificationOutput<B>> for Model<B> {
-    fn step(&self, batch: MnistBatch<B>) -> ClassificationOutput<B> {
+impl InferenceStep for Model {
+    type Input = MnistBatch;
+    type Output = ClassificationOutput;
+
+    fn step(&self, batch: MnistBatch) -> Self::Output {
         self.forward_classification(batch.images, batch.targets)
     }
 }
 
-#[derive(Config)]
+#[derive(Config, Debug)]
 pub struct TrainingConfig {
     pub model: ModelConfig,
     pub optimizer: AdamConfig,
@@ -129,13 +133,13 @@ fn create_artifact_dir(artifact_dir: &str) {
     std::fs::create_dir_all(artifact_dir).ok();
 }
 
-pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, device: B::Device) {
+pub fn train(artifact_dir: &str, config: TrainingConfig, device: Device) {
     create_artifact_dir(artifact_dir);
     config
         .save(format!("{artifact_dir}/config.json"))
         .expect("Config should be saved successfully");
 
-    B::seed(config.seed);
+    device.seed(config.seed);
 
     let batcher = MnistBatcher::default();
 
@@ -151,25 +155,22 @@ pub fn train<B: AutodiffBackend>(artifact_dir: &str, config: TrainingConfig, dev
         .num_workers(config.num_workers)
         .build(MnistDataset::test());
 
-    let learner = LearnerBuilder::new(artifact_dir)
+    let learner = SupervisedTraining::new(artifact_dir, dataloader_train, dataloader_test)
         .metric_train_numeric(AccuracyMetric::new())
         .metric_valid_numeric(AccuracyMetric::new())
         .metric_train_numeric(LossMetric::new())
         .metric_valid_numeric(LossMetric::new())
-        .with_file_checkpointer(CompactRecorder::new())
-        // NOTE: Not available on `main`, only on 0.18.0, but also not needed on 0.18
-        // .devices(vec![device.clone()])
+        .with_default_checkpointers()
         .num_epochs(config.num_epochs)
         .summary()
-        .build(
-            config.model.init::<B>(&device),
+        .launch(Learner::new(
+            config.model.init(&device),
             config.optimizer.init(),
             config.learning_rate,
-        );
+        ));
 
-    let model_trained = learner.fit(dataloader_train, dataloader_test);
-
-    model_trained
-        .save_file(format!("{artifact_dir}/model"), &CompactRecorder::new())
+    learner
+        .model
+        .save_file(format!("{artifact_dir}/model"))
         .expect("Trained model should be saved successfully");
 }
